@@ -21,7 +21,48 @@
   h1 { font-size: 20px; letter-spacing: 3px; color: #0ef; text-shadow: 0 0 16px #0ef; }
   #hud { font-size: 13px; color: #aaa; letter-spacing: 1px; }
   #hud span { color: #0ef; }
-  canvas { display: block; border: 1px solid #333; }
+
+  /* Main play area: canvas left, floor plans right */
+  #game-area {
+    display: flex;
+    flex-direction: row;
+    gap: 14px;
+    align-items: flex-start;
+  }
+  canvas#canvas { display: block; border: 1px solid #333; }
+
+  /* Floor plan panel */
+  #floorplans {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .fp-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+  }
+  .fp-label {
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: #666;
+    text-transform: uppercase;
+  }
+  .fp-label.active { color: #0ef; }
+  canvas.fp-canvas {
+    display: block;
+    border: 1px solid #333;
+    border-radius: 2px;
+  }
+  canvas.fp-canvas.active { border-color: #0ef; box-shadow: 0 0 6px rgba(0,238,255,0.4); }
+
+  /* On phones: stack floor plans below the maze */
+  @media (max-width: 600px) {
+    #game-area { flex-direction: column; align-items: center; }
+    #floorplans { flex-direction: row; flex-wrap: wrap; justify-content: center; }
+  }
+
   #controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
   button {
     padding: 6px 16px;
@@ -34,11 +75,25 @@
     border-radius: 3px;
   }
   button:hover { background: #333; border-color: #666; }
-  #size-row { font-size: 11px; color: #666; display: flex; align-items: center; gap: 6px; }
-  input[type=range] { accent-color: #0ef; width: 100px; }
+  #config-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+    font-size: 11px;
+    color: #666;
+    align-items: center;
+  }
+  #config-row label { display: flex; align-items: center; gap: 5px; }
+  input[type=range] { accent-color: #0ef; width: 90px; }
+  input[type=number] {
+    width: 44px; background: #222; border: 1px solid #444;
+    color: #ccc; font-family: monospace; font-size: 11px;
+    padding: 2px 4px; border-radius: 3px; text-align: center;
+  }
   #overlay {
     position: fixed; inset: 0;
-    background: rgba(0, 0, 0, .75);
+    background: rgba(0,0,0,.78);
     display: flex; align-items: center; justify-content: center;
     z-index: 10;
   }
@@ -59,20 +114,31 @@
 <body>
 
 <h1>MOUSE IN MAZE</h1>
-<div id="hud">Floor: <span id="hud-floor">1</span> &nbsp; Moves: <span id="hud-moves">0</span> &nbsp; Time: <span id="hud-time">0:00</span></div>
+<div id="hud">
+  Floor: <span id="hud-floor">1</span> of <span id="hud-total">3</span>
+  &nbsp; Moves: <span id="hud-moves">0</span>
+  &nbsp; Time: <span id="hud-time">0:00</span>
+</div>
 
-<canvas id="canvas"></canvas>
+<div id="game-area">
+  <canvas id="canvas"></canvas>
+  <div id="floorplans"></div>
+</div>
 
 <div id="controls">
-  <button onclick="newGame()">New Maze</button>
+  <button onclick="newGame()">New Game</button>
   <button onclick="giveUp()">Give Up</button>
 </div>
 
-<div id="size-row">
-  Size:
-  <input type="range" id="size" min="7" max="41" step="2" value="21"
-    oninput="document.getElementById('size-label').textContent = +this.value + '×' + this.value">
-  <span id="size-label">21×21</span>
+<div id="config-row">
+  <label>Maze size:
+    <input type="range" id="cfg-size" min="7" max="41" step="2" value="21"
+      oninput="document.getElementById('lbl-size').textContent = +this.value + '×' + this.value">
+    <span id="lbl-size">21×21</span>
+  </label>
+  <label>Floors:
+    <input type="number" id="cfg-floors" min="2" max="8" value="3">
+  </label>
 </div>
 
 <div id="overlay" class="hidden">
@@ -86,44 +152,44 @@
 <script>
 'use strict';
 
+// ── State ─────────────────────────────────────────────────────────────────
 const canvas = document.getElementById('canvas');
 const ctx    = canvas.getContext('2d');
 
-let maze, player, goal, elevator;
-let floor = 1, moves = 0;
-let solutionPath = null;
-let cellSize = 24;
+let mazes        = [];   // one maze per floor
+let currentFloor = 0;
+let elevatorPos  = null; // {x, y} – shared across all floors
+let cheeseFloor  = 0;
+let cheesePos    = null; // [x, y]
+let player       = { x: 0, y: 0 };
+let solutionPath = null; // array of {x, y, floor}
+let cellSize     = 24;
+let moves        = 0;
 
 // Timer
-let timerStart = null, timerPaused = 0, timerInterval = null;
+let timerStart = null, timerInterval = null;
 function startTimer() {
   timerStart = Date.now();
   timerInterval = setInterval(() => {
-    const s = Math.floor((Date.now() - timerStart + timerPaused) / 1000);
-    const m = Math.floor(s / 60);
-    document.getElementById('hud-time').textContent = `${m}:${String(s % 60).padStart(2, '0')}`;
+    const s = Math.floor((Date.now() - timerStart) / 1000);
+    document.getElementById('hud-time').textContent =
+      `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   }, 500);
 }
 function stopTimer() { clearInterval(timerInterval); timerInterval = null; }
-function elapsed() { return Date.now() - timerStart + timerPaused; }
 
 // ── Maze generation (recursive backtracking) ──────────────────────────────
-
 function buildMaze(w, h) {
   if (w % 2 === 0) w++;
   if (h % 2 === 0) h++;
-
-  // grid: '#' = wall, ' ' = path, '^' = elevator
-  const grid = Array.from({ length: h }, () => Array(w).fill('#'));
+  const grid    = Array.from({ length: h }, () => Array(w).fill('#'));
   const visited = new Set();
 
   function carve(x, y) {
-    const dirs = shuffle([[0, -2], [0, 2], [-2, 0], [2, 0]]);
-    for (const [dx, dy] of dirs) {
-      const nx = x + dx, ny = y + dy;
-      const key = nx + ',' + ny;
-      if (nx > 0 && nx < w - 1 && ny > 0 && ny < h - 1 && !visited.has(key)) {
-        grid[y + dy / 2][x + dx / 2] = ' ';
+    for (const [dx, dy] of shuffle([[0,-2],[0,2],[-2,0],[2,0]])) {
+      const nx = x + dx, ny = y + dy, key = nx + ',' + ny;
+      if (nx > 0 && nx < w-1 && ny > 0 && ny < h-1 && !visited.has(key)) {
+        grid[y + dy/2][x + dx/2] = ' ';
         grid[ny][nx] = ' ';
         visited.add(key);
         carve(nx, ny);
@@ -136,12 +202,10 @@ function buildMaze(w, h) {
   visited.add(sx + ',' + sy);
   grid[sy][sx] = ' ';
   carve(sx, sy);
-
   return { grid, w, h };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
-
 function shuffle(arr) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -153,15 +217,13 @@ function shuffle(arr) {
 
 function findCenter(m) {
   const cx = Math.floor(m.w / 2), cy = Math.floor(m.h / 2);
-  for (let r = 0; r < m.w; r++) {
-    for (let dy = -r; dy <= r; dy++) {
+  for (let r = 0; r < m.w; r++)
+    for (let dy = -r; dy <= r; dy++)
       for (let dx = -r; dx <= r; dx++) {
         const x = cx + dx, y = cy + dy;
         if (x >= 0 && x < m.w && y >= 0 && y < m.h && m.grid[y][x] === ' ')
           return [x, y];
       }
-    }
-  }
   return [1, 1];
 }
 
@@ -175,135 +237,218 @@ function randomPathCell(m, exclude) {
   return paths[Math.floor(Math.random() * paths.length)];
 }
 
-function placeElevator(m) {
-  // Pick a wall adjacent to at least one path cell, make it passable
-  const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+// Find an (x,y) that has at least one path neighbour on EVERY floor,
+// so the elevator is reachable no matter which floor you're on.
+function findSharedElevatorPos(allMazes) {
+  const dirs = [[0,-1],[0,1],[-1,0],[1,0]];
+  const m0 = allMazes[0];
   const candidates = [];
-  for (let y = 1; y < m.h - 1; y++)
-    for (let x = 1; x < m.w - 1; x++)
-      if (m.grid[y][x] === '#' && dirs.some(([dx, dy]) => m.grid[y + dy]?.[x + dx] === ' '))
+  for (let y = 1; y < m0.h - 1; y++)
+    for (let x = 1; x < m0.w - 1; x++)
+      if (allMazes.every(m => dirs.some(([dx, dy]) => m.grid[y+dy]?.[x+dx] === ' ')))
         candidates.push([x, y]);
 
+  if (!candidates.length) {
+    // Fallback: use floor-0 elevator placement
+    const dirs2 = [[0,-1],[0,1],[-1,0],[1,0]];
+    for (let y = 1; y < m0.h-1; y++)
+      for (let x = 1; x < m0.w-1; x++)
+        if (m0.grid[y][x] === '#' && dirs2.some(([dx,dy]) => m0.grid[y+dy]?.[x+dx] === ' '))
+          candidates.push([x, y]);
+  }
+
   const [x, y] = candidates[Math.floor(Math.random() * candidates.length)];
-  m.grid[y][x] = '^';
-  return [x, y];
+  return { x, y };
 }
 
-// ── BFS solver ────────────────────────────────────────────────────────────
+// ── 3-D BFS solver ────────────────────────────────────────────────────────
+// State: "x,y,floor" – elevator edges connect the same (x,y) across all floors.
+function solveBFS3D(sx, sy, sf, gx, gy, gf) {
+  const startKey = `${sx},${sy},${sf}`;
+  const goalKey  = `${gx},${gy},${gf}`;
+  const prev     = new Map([[startKey, null]]);
+  const queue    = [[sx, sy, sf]];
 
-function solveBFS(m, [sx, sy], [gx, gy]) {
-  const prev = new Map([[sx + ',' + sy, null]]);
-  const queue = [[sx, sy]];
   while (queue.length) {
-    const [x, y] = queue.shift();
-    if (x === gx && y === gy) {
+    const [x, y, f] = queue.shift();
+    const key = `${x},${y},${f}`;
+    if (key === goalKey) {
       const path = [];
-      let cur = x + ',' + y;
-      while (cur) { path.push(cur.split(',').map(Number)); cur = prev.get(cur); }
+      let cur = key;
+      while (cur !== null) {
+        const [px, py, pf] = cur.split(',').map(Number);
+        path.push({ x: px, y: py, floor: pf });
+        cur = prev.get(cur);
+      }
       return path.reverse();
     }
-    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
-      const nx = x + dx, ny = y + dy, key = nx + ',' + ny;
+
+    const m = mazes[f];
+    // Normal moves on current floor
+    for (const [dx, dy] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+      const nx = x + dx, ny = y + dy;
       const cell = m.grid[ny]?.[nx];
-      if ((cell === ' ' || cell === '^') && !prev.has(key)) {
-        prev.set(key, x + ',' + y);
-        queue.push([nx, ny]);
+      if ((cell === ' ' || cell === '^') && !prev.has(`${nx},${ny},${f}`)) {
+        prev.set(`${nx},${ny},${f}`, key);
+        queue.push([nx, ny, f]);
+      }
+    }
+    // Elevator: jump to same (x,y) on every other floor
+    if (x === elevatorPos.x && y === elevatorPos.y) {
+      for (let nf = 0; nf < mazes.length; nf++) {
+        const nk = `${x},${y},${nf}`;
+        if (nf !== f && !prev.has(nk)) {
+          prev.set(nk, key);
+          queue.push([x, y, nf]);
+        }
       }
     }
   }
   return [];
 }
 
-// ── Game actions ──────────────────────────────────────────────────────────
+// ── Game setup ────────────────────────────────────────────────────────────
+function newGame() {
+  document.getElementById('overlay').classList.add('hidden');
+  stopTimer();
+  moves = 0;
+  solutionPath = null;
 
-function initFloor() {
-  let sz = parseInt(document.getElementById('size').value);
+  let sz = parseInt(document.getElementById('cfg-size').value);
   if (sz % 2 === 0) sz++;
+  const numFloors = Math.max(2, Math.min(8, parseInt(document.getElementById('cfg-floors').value) || 3));
 
-  const maxPx = Math.min(window.innerWidth - 24, window.innerHeight - 170, 560);
+  const maxPx = Math.min(window.innerWidth - 160, window.innerHeight - 180, 520);
   cellSize = Math.max(12, Math.floor(maxPx / sz));
-
   canvas.width  = sz * cellSize;
   canvas.height = sz * cellSize;
 
-  maze = buildMaze(sz, sz);
-  const [px, py] = findCenter(maze);
-  player    = { x: px, y: py };
-  goal      = randomPathCell(maze, [[px, py]]);
-  elevator  = placeElevator(maze);
-  solutionPath = null;
+  // Generate one maze per floor
+  mazes = Array.from({ length: numFloors }, () => buildMaze(sz, sz));
 
+  // Shared elevator position (reachable on all floors)
+  elevatorPos = findSharedElevatorPos(mazes);
+  for (const m of mazes) m.grid[elevatorPos.y][elevatorPos.x] = '^';
+
+  // Player starts near center of floor 0
+  currentFloor = 0;
+  const [cx, cy] = findCenter(mazes[0]);
+  player = { x: cx, y: cy };
+
+  // Cheese on a random floor, far from elevator
+  cheeseFloor = Math.floor(Math.random() * numFloors);
+  cheesePos   = randomPathCell(mazes[cheeseFloor], [
+    [cx, cy],
+    [elevatorPos.x, elevatorPos.y]
+  ]);
+
+  setupMinimaps(numFloors, sz);
   updateHUD();
   draw();
-}
-
-function newGame() {
-  floor = 1; moves = 0;
-  stopTimer(); timerStart = null; timerPaused = 0;
-  document.getElementById('hud-time').textContent = '0:00';
-  document.getElementById('overlay').classList.add('hidden');
-  initFloor();
+  drawMinimaps();
   startTimer();
 }
 
-function newFloor() {
-  floor++;
-  solutionPath = null;
-  initFloor();
+// ── Floor-plan mini-maps ──────────────────────────────────────────────────
+const MM = 80; // minimap pixel size
+
+function setupMinimaps(numFloors, sz) {
+  const container = document.getElementById('floorplans');
+  container.innerHTML = '';
+  for (let f = 0; f < numFloors; f++) {
+    const wrap = document.createElement('div');
+    wrap.className = 'fp-wrapper';
+
+    const lbl = document.createElement('div');
+    lbl.className = 'fp-label' + (f === currentFloor ? ' active' : '');
+    lbl.id = `fp-label-${f}`;
+    lbl.textContent = `Floor ${f + 1}`;
+
+    const mc = document.createElement('canvas');
+    mc.className = 'fp-canvas' + (f === currentFloor ? ' active' : '');
+    mc.id = `fp-${f}`;
+    mc.width  = MM;
+    mc.height = MM;
+
+    wrap.appendChild(lbl);
+    wrap.appendChild(mc);
+    container.appendChild(wrap);
+  }
 }
 
-function giveUp() {
-  solutionPath = solveBFS(maze, [player.x, player.y], goal);
-  draw();
+function drawMinimaps() {
+  for (let f = 0; f < mazes.length; f++) {
+    const mc = document.getElementById(`fp-${f}`);
+    if (!mc) continue;
+
+    // Update active state
+    mc.className        = 'fp-canvas' + (f === currentFloor ? ' active' : '');
+    const lbl           = document.getElementById(`fp-label-${f}`);
+    if (lbl) lbl.className = 'fp-label' + (f === currentFloor ? ' active' : '');
+
+    const mctx = mc.getContext('2d');
+    const m    = mazes[f];
+    const cpx  = MM / m.w;
+    const cpy  = MM / m.h;
+
+    // Maze structure (very subtle – walls vs paths)
+    for (let y = 0; y < m.h; y++)
+      for (let x = 0; x < m.w; x++) {
+        mctx.fillStyle = m.grid[y][x] === '#' ? '#1a1a1a' : '#383838';
+        mctx.fillRect(x * cpx, y * cpy, cpx + 0.5, cpy + 0.5);
+      }
+
+    // Solution path for this floor (small dots)
+    if (solutionPath) {
+      mctx.fillStyle = 'rgba(220,180,0,0.85)';
+      for (const p of solutionPath) {
+        if (p.floor !== f) continue;
+        mctx.beginPath();
+        mctx.arc(p.x * cpx + cpx / 2, p.y * cpy + cpy / 2, Math.max(1, cpx * 0.35), 0, Math.PI * 2);
+        mctx.fill();
+      }
+    }
+
+    // Elevator dot (purple, all floors)
+    mctx.fillStyle = '#aa44ff';
+    mctx.beginPath();
+    mctx.arc(elevatorPos.x * cpx + cpx/2, elevatorPos.y * cpy + cpy/2,
+             Math.max(2, cpx * 0.55), 0, Math.PI * 2);
+    mctx.fill();
+
+    // Cheese dot (yellow, cheese floor only)
+    if (f === cheeseFloor) {
+      mctx.fillStyle = '#ffcc00';
+      mctx.beginPath();
+      mctx.arc(cheesePos[0] * cpx + cpx/2, cheesePos[1] * cpy + cpy/2,
+               Math.max(2, cpx * 0.55), 0, Math.PI * 2);
+      mctx.fill();
+    }
+
+    // Player dot (pink, current floor only)
+    if (f === currentFloor) {
+      mctx.fillStyle = '#ff4d9d';
+      mctx.beginPath();
+      mctx.arc(player.x * cpx + cpx/2, player.y * cpy + cpy/2,
+               Math.max(2, cpx * 0.65), 0, Math.PI * 2);
+      mctx.fill();
+    }
+  }
 }
 
-function movePlayer(dx, dy) {
-  const nx = player.x + dx;
-  const ny = player.y + dy;
-  const cell = maze.grid[ny]?.[nx];
-  if (cell !== ' ' && cell !== '^') return;
-
-  player.x = nx;
-  player.y = ny;
-  moves++;
-  solutionPath = null;
-  updateHUD();
-
-  if (nx === elevator[0] && ny === elevator[1]) { newFloor(); return; }
-  if (nx === goal[0]     && ny === goal[1])     { showWin();  return; }
-  draw();
-}
-
-function showWin() {
-  stopTimer();
-  draw();
-  const s = Math.floor(elapsed() / 1000);
-  const m = Math.floor(s / 60);
-  const timeStr = `${m}:${String(s % 60).padStart(2, '0')}`;
-  document.getElementById('ov-title').textContent = 'YOU WIN!';
-  document.getElementById('ov-msg').textContent   = `Floor ${floor} · ${moves} moves · ${timeStr}`;
-  document.getElementById('overlay').classList.remove('hidden');
-}
-
-function updateHUD() {
-  document.getElementById('hud-floor').textContent = floor;
-  document.getElementById('hud-moves').textContent = moves;
-}
-
-// ── Drawing ───────────────────────────────────────────────────────────────
-
+// ── Main canvas draw ──────────────────────────────────────────────────────
 function draw() {
   const cs = cellSize;
-  const { grid, w, h } = maze;
+  const m  = mazes[currentFloor];
+  const { grid, w, h } = m;
 
-  // Maze cells – dungeon palette
+  // Maze cells
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const c = grid[y][x];
       if (c === '#') {
         ctx.fillStyle = '#0a0a1e';
         ctx.fillRect(x * cs, y * cs, cs, cs);
-        // Subtle top/left edge highlight to give walls depth
         ctx.fillStyle = 'rgba(0,100,200,0.12)';
         ctx.fillRect(x * cs, y * cs, cs, 1);
         ctx.fillRect(x * cs, y * cs, 1, cs);
@@ -314,50 +459,103 @@ function draw() {
     }
   }
 
-  // Solution path – small cheese-crumb dots
+  // Solution path crumbs for THIS floor only
   if (solutionPath) {
-    ctx.fillStyle = 'rgba(220, 180, 0, 0.75)';
-    for (const [px, py] of solutionPath) {
+    ctx.fillStyle = 'rgba(220, 170, 0, 0.8)';
+    for (const p of solutionPath) {
+      if (p.floor !== currentFloor) continue;
       ctx.beginPath();
-      ctx.arc(px * cs + cs / 2, py * cs + cs / 2, cs * 0.12, 0, Math.PI * 2);
+      ctx.arc(p.x * cs + cs / 2, p.y * cs + cs / 2, cs * 0.12, 0, Math.PI * 2);
       ctx.fill();
     }
   }
 
-  // Helper to draw an emoji centred in a cell
-  function drawEmoji(emoji, x, y) {
+  // Helper: draw emoji centred in a grid cell
+  function emoji(e, x, y) {
     ctx.font = `${Math.floor(cs * 0.78)}px serif`;
-    ctx.textAlign = 'center';
+    ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(emoji, x * cs + cs / 2, y * cs + cs / 2);
+    ctx.fillText(e, x * cs + cs / 2, y * cs + cs / 2);
   }
 
-  // Goal – cheese
-  drawEmoji('🧀', goal[0], goal[1]);
+  // Cheese (only visible on cheese floor)
+  if (currentFloor === cheeseFloor)
+    emoji('🧀', cheesePos[0], cheesePos[1]);
 
-  // Elevator
-  ctx.fillStyle = '#555';
-  ctx.fillRect(elevator[0] * cs, elevator[1] * cs, cs, cs);
-  drawEmoji('🛗', elevator[0], elevator[1]);
+  // Elevator (present on every floor)
+  ctx.fillStyle = '#2a0a3a';
+  ctx.fillRect(elevatorPos.x * cs, elevatorPos.y * cs, cs, cs);
+  emoji('🛗', elevatorPos.x, elevatorPos.y);
 
-  // Player – mouse
-  drawEmoji('🐭', player.x, player.y);
+  // Player
+  emoji('🐭', player.x, player.y);
+}
 
+// ── Actions ───────────────────────────────────────────────────────────────
+function movePlayer(dx, dy) {
+  const nx   = player.x + dx;
+  const ny   = player.y + dy;
+  const cell = mazes[currentFloor].grid[ny]?.[nx];
+  if (cell !== ' ' && cell !== '^') return;
+
+  player.x = nx;
+  player.y = ny;
+  moves++;
+  solutionPath = null;
+  updateHUD();
+
+  // Elevator: cycle to next floor, same position
+  if (nx === elevatorPos.x && ny === elevatorPos.y) {
+    currentFloor = (currentFloor + 1) % mazes.length;
+    updateHUD();
+  }
+
+  // Win: reached cheese on correct floor
+  if (nx === cheesePos[0] && ny === cheesePos[1] && currentFloor === cheeseFloor)
+    return showWin();
+
+  draw();
+  drawMinimaps();
+}
+
+function giveUp() {
+  if (!mazes.length) return;
+  solutionPath = solveBFS3D(
+    player.x, player.y, currentFloor,
+    cheesePos[0], cheesePos[1], cheeseFloor
+  );
+  draw();
+  drawMinimaps();
+}
+
+function showWin() {
+  stopTimer();
+  draw();
+  drawMinimaps();
+  const s = Math.floor((Date.now() - timerStart) / 1000);
+  document.getElementById('ov-title').textContent = 'YOU WIN!';
+  document.getElementById('ov-msg').textContent =
+    `${moves} moves · ${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+  document.getElementById('overlay').classList.remove('hidden');
+}
+
+function updateHUD() {
+  document.getElementById('hud-floor').textContent = currentFloor + 1;
+  document.getElementById('hud-total').textContent = mazes.length;
+  document.getElementById('hud-moves').textContent = moves;
 }
 
 // ── Input ─────────────────────────────────────────────────────────────────
-
 document.addEventListener('keydown', e => {
-  if (!maze) return;
+  if (!mazes.length) return;
   const map = {
-    ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
-    KeyW: [0, -1],    KeyS: [0, 1],      KeyA: [-1, 0],      KeyD: [1, 0],
+    ArrowUp: [0,-1], ArrowDown: [0,1], ArrowLeft: [-1,0], ArrowRight: [1,0],
+    KeyW:    [0,-1], KeyS:      [0,1], KeyA:      [-1,0], KeyD:       [1,0],
   };
   const d = map[e.code];
   if (d) { e.preventDefault(); movePlayer(...d); }
 });
 
-// Touch swipe
 let touchStart = null;
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
@@ -365,7 +563,7 @@ canvas.addEventListener('touchstart', e => {
 }, { passive: false });
 canvas.addEventListener('touchend', e => {
   e.preventDefault();
-  if (!touchStart || !maze) return;
+  if (!touchStart || !mazes.length) return;
   const dx = e.changedTouches[0].clientX - touchStart.x;
   const dy = e.changedTouches[0].clientY - touchStart.y;
   if (Math.hypot(dx, dy) < 15) return;
