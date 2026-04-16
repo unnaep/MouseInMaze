@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mouse in Maze</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #111;
+    color: #fff;
+    font-family: monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    gap: 8px;
+    padding: 10px;
+  }
+  h1 { font-size: 20px; letter-spacing: 3px; color: #0ef; }
+  #hud { font-size: 13px; color: #aaa; letter-spacing: 1px; }
+  canvas { display: block; border: 1px solid #333; }
+  #controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  button {
+    padding: 6px 16px;
+    background: #222;
+    border: 1px solid #444;
+    color: #ccc;
+    font-family: monospace;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 3px;
+  }
+  button:hover { background: #333; border-color: #666; }
+  #size-row { font-size: 11px; color: #666; display: flex; align-items: center; gap: 6px; }
+  input[type=range] { accent-color: #0ef; width: 100px; }
+  #overlay {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, .75);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 10;
+  }
+  #overlay.hidden { display: none; }
+  #overlay-box {
+    background: #1a1a2e;
+    border: 1px solid #0ef;
+    border-radius: 6px;
+    padding: 24px 32px;
+    text-align: center;
+    max-width: 300px;
+  }
+  #overlay-box h2 { color: #0ef; font-size: 22px; margin-bottom: 8px; }
+  #overlay-box p  { color: #aaa; font-size: 13px; margin-bottom: 16px; }
+  #overlay-box button { font-size: 13px; padding: 8px 24px; border-color: #0ef; color: #0ef; }
+</style>
+</head>
+<body>
+
+<h1>MOUSE IN MAZE</h1>
+<div id="hud">Floor: <span id="hud-floor">1</span> &nbsp; Moves: <span id="hud-moves">0</span></div>
+
+<canvas id="canvas"></canvas>
+
+<div id="controls">
+  <button onclick="newGame()">New Maze</button>
+  <button onclick="giveUp()">Give Up</button>
+</div>
+
+<div id="size-row">
+  Size:
+  <input type="range" id="size" min="7" max="41" step="2" value="21"
+    oninput="document.getElementById('size-label').textContent = +this.value + '×' + this.value">
+  <span id="size-label">21×21</span>
+</div>
+
+<div id="overlay" class="hidden">
+  <div id="overlay-box">
+    <h2 id="ov-title">YOU WIN!</h2>
+    <p id="ov-msg"></p>
+    <button onclick="newGame()">Play Again</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+
+let maze, player, goal, elevator;
+let floor = 1, moves = 0;
+let solutionPath = null;
+let cellSize = 24;
+
+// ── Maze generation (recursive backtracking) ──────────────────────────────
+
+function buildMaze(w, h) {
+  if (w % 2 === 0) w++;
+  if (h % 2 === 0) h++;
+
+  // grid: '#' = wall, ' ' = path, '^' = elevator
+  const grid = Array.from({ length: h }, () => Array(w).fill('#'));
+  const visited = new Set();
+
+  function carve(x, y) {
+    const dirs = shuffle([[0, -2], [0, 2], [-2, 0], [2, 0]]);
+    for (const [dx, dy] of dirs) {
+      const nx = x + dx, ny = y + dy;
+      const key = nx + ',' + ny;
+      if (nx > 0 && nx < w - 1 && ny > 0 && ny < h - 1 && !visited.has(key)) {
+        grid[y + dy / 2][x + dx / 2] = ' ';
+        grid[ny][nx] = ' ';
+        visited.add(key);
+        carve(nx, ny);
+      }
+    }
+  }
+
+  const sx = 1 + Math.floor(Math.random() * Math.floor(w / 2)) * 2;
+  const sy = 1 + Math.floor(Math.random() * Math.floor(h / 2)) * 2;
+  visited.add(sx + ',' + sy);
+  grid[sy][sx] = ' ';
+  carve(sx, sy);
+
+  return { grid, w, h };
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function findCenter(m) {
+  const cx = Math.floor(m.w / 2), cy = Math.floor(m.h / 2);
+  for (let r = 0; r < m.w; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const x = cx + dx, y = cy + dy;
+        if (x >= 0 && x < m.w && y >= 0 && y < m.h && m.grid[y][x] === ' ')
+          return [x, y];
+      }
+    }
+  }
+  return [1, 1];
+}
+
+function randomPathCell(m, exclude) {
+  const excSet = new Set(exclude.map(([x, y]) => x + ',' + y));
+  const paths = [];
+  for (let y = 0; y < m.h; y++)
+    for (let x = 0; x < m.w; x++)
+      if (m.grid[y][x] === ' ' && !excSet.has(x + ',' + y))
+        paths.push([x, y]);
+  return paths[Math.floor(Math.random() * paths.length)];
+}
+
+function placeElevator(m) {
+  // Pick a wall adjacent to at least one path cell, make it passable
+  const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+  const candidates = [];
+  for (let y = 1; y < m.h - 1; y++)
+    for (let x = 1; x < m.w - 1; x++)
+      if (m.grid[y][x] === '#' && dirs.some(([dx, dy]) => m.grid[y + dy]?.[x + dx] === ' '))
+        candidates.push([x, y]);
+
+  const [x, y] = candidates[Math.floor(Math.random() * candidates.length)];
+  m.grid[y][x] = '^';
+  return [x, y];
+}
+
+// ── BFS solver ────────────────────────────────────────────────────────────
+
+function solveBFS(m, [sx, sy], [gx, gy]) {
+  const prev = new Map([[sx + ',' + sy, null]]);
+  const queue = [[sx, sy]];
+  while (queue.length) {
+    const [x, y] = queue.shift();
+    if (x === gx && y === gy) {
+      const path = [];
+      let cur = x + ',' + y;
+      while (cur) { path.push(cur.split(',').map(Number)); cur = prev.get(cur); }
+      return path.reverse();
+    }
+    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      const nx = x + dx, ny = y + dy, key = nx + ',' + ny;
+      const cell = m.grid[ny]?.[nx];
+      if ((cell === ' ' || cell === '^') && !prev.has(key)) {
+        prev.set(key, x + ',' + y);
+        queue.push([nx, ny]);
+      }
+    }
+  }
+  return [];
+}
+
+// ── Game actions ──────────────────────────────────────────────────────────
+
+function initFloor() {
+  let sz = parseInt(document.getElementById('size').value);
+  if (sz % 2 === 0) sz++;
+
+  const maxPx = Math.min(window.innerWidth - 24, window.innerHeight - 170, 560);
+  cellSize = Math.max(12, Math.floor(maxPx / sz));
+
+  canvas.width  = sz * cellSize;
+  canvas.height = sz * cellSize;
+
+  maze = buildMaze(sz, sz);
+  const [px, py] = findCenter(maze);
+  player    = { x: px, y: py };
+  goal      = randomPathCell(maze, [[px, py]]);
+  elevator  = placeElevator(maze);
+  solutionPath = null;
+
+  updateHUD();
+  draw();
+}
+
+function newGame() {
+  floor = 1; moves = 0;
+  document.getElementById('overlay').classList.add('hidden');
+  initFloor();
+}
+
+function newFloor() {
+  floor++;
+  solutionPath = null;
+  initFloor();
+}
+
+function giveUp() {
+  solutionPath = solveBFS(maze, [player.x, player.y], goal);
+  draw();
+}
+
+function movePlayer(dx, dy) {
+  const nx = player.x + dx;
+  const ny = player.y + dy;
+  const cell = maze.grid[ny]?.[nx];
+  if (cell !== ' ' && cell !== '^') return;
+
+  player.x = nx;
+  player.y = ny;
+  moves++;
+  solutionPath = null;
+  updateHUD();
+
+  if (nx === elevator[0] && ny === elevator[1]) { newFloor(); return; }
+  if (nx === goal[0]     && ny === goal[1])     { showWin();  return; }
+  draw();
+}
+
+function showWin() {
+  draw();
+  document.getElementById('ov-title').textContent = 'YOU WIN!';
+  document.getElementById('ov-msg').textContent   = `Floor ${floor} · ${moves} moves`;
+  document.getElementById('overlay').classList.remove('hidden');
+}
+
+function updateHUD() {
+  document.getElementById('hud-floor').textContent = floor;
+  document.getElementById('hud-moves').textContent = moves;
+}
+
+// ── Drawing ───────────────────────────────────────────────────────────────
+
+function draw() {
+  const cs = cellSize;
+  const { grid, w, h } = maze;
+
+  // Maze cells
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const c = grid[y][x];
+      ctx.fillStyle = c === '#' ? '#111' : c === ' ' ? '#f0f0f0' : '#555';
+      ctx.fillRect(x * cs, y * cs, cs, cs);
+    }
+  }
+
+  // Solution path
+  if (solutionPath) {
+    ctx.fillStyle = 'rgba(30, 120, 255, 0.45)';
+    for (const [px, py] of solutionPath)
+      ctx.fillRect(px * cs + 2, py * cs + 2, cs - 4, cs - 4);
+  }
+
+  // Goal (green square)
+  ctx.fillStyle = '#00c853';
+  ctx.fillRect(goal[0] * cs, goal[1] * cs, cs, cs);
+
+  // Elevator (purple with arrow)
+  ctx.fillStyle = '#7b1fa2';
+  ctx.fillRect(elevator[0] * cs, elevator[1] * cs, cs, cs);
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold ${Math.floor(cs * 0.65)}px monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('↑', elevator[0] * cs + cs / 2, elevator[1] * cs + cs / 2);
+
+  // Player (hot-pink circle)
+  ctx.fillStyle = '#ff4d9d';
+  ctx.beginPath();
+  ctx.arc(player.x * cs + cs / 2, player.y * cs + cs / 2, cs * 0.38, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// ── Input ─────────────────────────────────────────────────────────────────
+
+document.addEventListener('keydown', e => {
+  if (!maze) return;
+  const map = {
+    ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
+    KeyW: [0, -1],    KeyS: [0, 1],      KeyA: [-1, 0],      KeyD: [1, 0],
+  };
+  const d = map[e.code];
+  if (d) { e.preventDefault(); movePlayer(...d); }
+});
+
+// Touch swipe
+let touchStart = null;
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+}, { passive: false });
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (!touchStart || !maze) return;
+  const dx = e.changedTouches[0].clientX - touchStart.x;
+  const dy = e.changedTouches[0].clientY - touchStart.y;
+  if (Math.hypot(dx, dy) < 15) return;
+  if (Math.abs(dx) > Math.abs(dy)) movePlayer(dx > 0 ? 1 : -1, 0);
+  else movePlayer(0, dy > 0 ? 1 : -1);
+  touchStart = null;
+}, { passive: false });
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+newGame();
+</script>
+</body>
+</html>
