@@ -18,8 +18,9 @@
     gap: 8px;
     padding: 10px;
   }
-  h1 { font-size: 20px; letter-spacing: 3px; color: #0ef; }
+  h1 { font-size: 20px; letter-spacing: 3px; color: #0ef; text-shadow: 0 0 16px #0ef; }
   #hud { font-size: 13px; color: #aaa; letter-spacing: 1px; }
+  #hud span { color: #0ef; }
   canvas { display: block; border: 1px solid #333; }
   #controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
   button {
@@ -58,7 +59,7 @@
 <body>
 
 <h1>MOUSE IN MAZE</h1>
-<div id="hud">Floor: <span id="hud-floor">1</span> &nbsp; Moves: <span id="hud-moves">0</span></div>
+<div id="hud">Floor: <span id="hud-floor">1</span> &nbsp; Moves: <span id="hud-moves">0</span> &nbsp; Time: <span id="hud-time">0:00</span></div>
 
 <canvas id="canvas"></canvas>
 
@@ -92,6 +93,19 @@ let maze, player, goal, elevator;
 let floor = 1, moves = 0;
 let solutionPath = null;
 let cellSize = 24;
+
+// Timer
+let timerStart = null, timerPaused = 0, timerInterval = null;
+function startTimer() {
+  timerStart = Date.now();
+  timerInterval = setInterval(() => {
+    const s = Math.floor((Date.now() - timerStart + timerPaused) / 1000);
+    const m = Math.floor(s / 60);
+    document.getElementById('hud-time').textContent = `${m}:${String(s % 60).padStart(2, '0')}`;
+  }, 500);
+}
+function stopTimer() { clearInterval(timerInterval); timerInterval = null; }
+function elapsed() { return Date.now() - timerStart + timerPaused; }
 
 // ── Maze generation (recursive backtracking) ──────────────────────────────
 
@@ -225,8 +239,11 @@ function initFloor() {
 
 function newGame() {
   floor = 1; moves = 0;
+  stopTimer(); timerStart = null; timerPaused = 0;
+  document.getElementById('hud-time').textContent = '0:00';
   document.getElementById('overlay').classList.add('hidden');
   initFloor();
+  startTimer();
 }
 
 function newFloor() {
@@ -258,9 +275,13 @@ function movePlayer(dx, dy) {
 }
 
 function showWin() {
+  stopTimer();
   draw();
+  const s = Math.floor(elapsed() / 1000);
+  const m = Math.floor(s / 60);
+  const timeStr = `${m}:${String(s % 60).padStart(2, '0')}`;
   document.getElementById('ov-title').textContent = 'YOU WIN!';
-  document.getElementById('ov-msg').textContent   = `Floor ${floor} · ${moves} moves`;
+  document.getElementById('ov-msg').textContent   = `Floor ${floor} · ${moves} moves · ${timeStr}`;
   document.getElementById('overlay').classList.remove('hidden');
 }
 
@@ -275,40 +296,94 @@ function draw() {
   const cs = cellSize;
   const { grid, w, h } = maze;
 
-  // Maze cells
+  // Maze cells – dungeon palette
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const c = grid[y][x];
-      ctx.fillStyle = c === '#' ? '#111' : c === ' ' ? '#f0f0f0' : '#555';
-      ctx.fillRect(x * cs, y * cs, cs, cs);
+      if (c === '#') {
+        ctx.fillStyle = '#0a0a1e';
+        ctx.fillRect(x * cs, y * cs, cs, cs);
+        // Subtle top/left edge highlight to give walls depth
+        ctx.fillStyle = 'rgba(0,100,200,0.12)';
+        ctx.fillRect(x * cs, y * cs, cs, 1);
+        ctx.fillRect(x * cs, y * cs, 1, cs);
+      } else {
+        ctx.fillStyle = '#181830';
+        ctx.fillRect(x * cs, y * cs, cs, cs);
+      }
     }
   }
 
   // Solution path
   if (solutionPath) {
-    ctx.fillStyle = 'rgba(30, 120, 255, 0.45)';
-    for (const [px, py] of solutionPath)
-      ctx.fillRect(px * cs + 2, py * cs + 2, cs - 4, cs - 4);
+    for (const [px, py] of solutionPath) {
+      ctx.fillStyle = 'rgba(255, 210, 0, 0.5)';
+      ctx.fillRect(px * cs + Math.floor(cs * 0.25), py * cs + Math.floor(cs * 0.25),
+                   Math.ceil(cs * 0.5), Math.ceil(cs * 0.5));
+    }
   }
 
-  // Goal (green square)
-  ctx.fillStyle = '#00c853';
-  ctx.fillRect(goal[0] * cs, goal[1] * cs, cs, cs);
+  // Goal – glowing green star-ish diamond
+  ctx.save();
+  ctx.shadowColor = '#00ff88';
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = '#00e676';
+  const gcx = goal[0] * cs + cs / 2, gcy = goal[1] * cs + cs / 2, gr = cs * 0.38;
+  ctx.beginPath();
+  ctx.moveTo(gcx,      gcy - gr);
+  ctx.lineTo(gcx + gr, gcy);
+  ctx.lineTo(gcx,      gcy + gr);
+  ctx.lineTo(gcx - gr, gcy);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
 
-  // Elevator (purple with arrow)
-  ctx.fillStyle = '#7b1fa2';
+  // Elevator – purple with glow and arrow
+  ctx.save();
+  ctx.shadowColor = '#cc44ff';
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = '#6a0dad';
   ctx.fillRect(elevator[0] * cs, elevator[1] * cs, cs, cs);
-  ctx.fillStyle = '#fff';
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#f0c0ff';
   ctx.font = `bold ${Math.floor(cs * 0.65)}px monospace`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText('↑', elevator[0] * cs + cs / 2, elevator[1] * cs + cs / 2);
+  ctx.restore();
 
-  // Player (hot-pink circle)
+  // Player – hot-pink glowing circle
+  ctx.save();
+  ctx.shadowColor = '#ff4d9d';
+  ctx.shadowBlur = 14;
   ctx.fillStyle = '#ff4d9d';
   ctx.beginPath();
-  ctx.arc(player.x * cs + cs / 2, player.y * cs + cs / 2, cs * 0.38, 0, Math.PI * 2);
+  ctx.arc(player.x * cs + cs / 2, player.y * cs + cs / 2, cs * 0.36, 0, Math.PI * 2);
   ctx.fill();
+  // Shine
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.beginPath();
+  ctx.arc(player.x * cs + cs * 0.35, player.y * cs + cs * 0.35, cs * 0.14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Fog of war – dark overlay with radial cutout at player position
+  const pcx = player.x * cs + cs / 2;
+  const pcy = player.y * cs + cs / 2;
+  const fogR = cs * 5.5;
+  ctx.save();
+  ctx.fillStyle = 'rgba(6, 6, 18, 0.93)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.globalCompositeOperation = 'destination-out';
+  const grad = ctx.createRadialGradient(pcx, pcy, fogR * 0.3, pcx, pcy, fogR);
+  grad.addColorStop(0, 'rgba(0,0,0,1)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(pcx, pcy, fogR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 // ── Input ─────────────────────────────────────────────────────────────────
