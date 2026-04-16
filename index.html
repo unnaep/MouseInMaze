@@ -368,22 +368,6 @@ function draw() {
   ctx.fill();
   ctx.restore();
 
-  // Fog of war – dark overlay with radial cutout at player position
-  const pcx = player.x * cs + cs / 2;
-  const pcy = player.y * cs + cs / 2;
-  const fogR = cs * 5.5;
-  ctx.save();
-  ctx.fillStyle = 'rgba(6, 6, 18, 0.93)';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.globalCompositeOperation = 'destination-out';
-  const grad = ctx.createRadialGradient(pcx, pcy, fogR * 0.3, pcx, pcy, fogR);
-  grad.addColorStop(0, 'rgba(0,0,0,1)');
-  grad.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.arc(pcx, pcy, fogR, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
 }
 
 // ── Input ─────────────────────────────────────────────────────────────────
