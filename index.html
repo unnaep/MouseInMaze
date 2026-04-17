@@ -478,9 +478,12 @@ function draw() {
     ctx.fillText(e, x * cs + cs / 2, y * cs + cs / 2);
   }
 
-  // Cheese (only visible on cheese floor)
-  if (currentFloor === cheeseFloor)
+  // Cheese (only visible on cheese floor) – dark background so it pops
+  if (currentFloor === cheeseFloor) {
+    ctx.fillStyle = '#2a1a00';
+    ctx.fillRect(cheesePos[0] * cs, cheesePos[1] * cs, cs, cs);
     emoji('🧀', cheesePos[0], cheesePos[1]);
+  }
 
   // Elevator (present on every floor)
   ctx.fillStyle = '#2a0a3a';
