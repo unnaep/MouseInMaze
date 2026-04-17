@@ -478,16 +478,10 @@ function draw() {
     ctx.fillText(e, x * cs + cs / 2, y * cs + cs / 2);
   }
 
-  // Cheese – soft golden halo so it stands out on the light path
+  // Cheese – white cell background, emoji on top
   if (currentFloor === cheeseFloor) {
-    ctx.save();
-    ctx.shadowColor = '#ffaa00';
-    ctx.shadowBlur  = cs * 0.6;
-    ctx.fillStyle   = 'rgba(255, 180, 0, 0.35)';
-    ctx.beginPath();
-    ctx.arc(cheesePos[0] * cs + cs / 2, cheesePos[1] * cs + cs / 2, cs * 0.42, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(cheesePos[0] * cs, cheesePos[1] * cs, cs, cs);
     emoji('🧀', cheesePos[0], cheesePos[1]);
   }
 
