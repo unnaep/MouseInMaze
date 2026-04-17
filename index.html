@@ -478,19 +478,30 @@ function draw() {
     ctx.fillText(e, x * cs + cs / 2, y * cs + cs / 2);
   }
 
-  // Cheese – white cell background, emoji on top
-  if (currentFloor === cheeseFloor) {
+  // Helper: white cell + emoji, with all canvas state reset to avoid bleed
+  function emojiCell(e, x, y) {
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(cheesePos[0] * cs, cheesePos[1] * cs, cs, cs);
-    emoji('🧀', cheesePos[0], cheesePos[1]);
+    ctx.fillRect(x * cs, y * cs, cs, cs);
+    ctx.font = `${Math.floor(cs * 0.78)}px serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(e, x * cs + cs / 2, y * cs + cs / 2);
+    ctx.restore();
   }
 
-  // Elevator (present on every floor)
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(elevatorPos.x * cs, elevatorPos.y * cs, cs, cs);
-  emoji('🛗', elevatorPos.x, elevatorPos.y);
+  // Cheese (only on cheese floor)
+  if (currentFloor === cheeseFloor)
+    emojiCell('🧀', cheesePos[0], cheesePos[1]);
 
-  // Player
+  // Elevator (every floor)
+  emojiCell('🛗', elevatorPos.x, elevatorPos.y);
+
+  // Player (no background needed – path cell shows through)
   emoji('🐭', player.x, player.y);
 }
 
