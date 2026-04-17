@@ -494,8 +494,8 @@ function drawMinimaps() {
       }
     }
 
-    // Elevator dot (purple, all floors)
-    mctx.fillStyle = '#aa44ff';
+    // Elevator dot (blue, all floors)
+    mctx.fillStyle = '#4488ff';
     mctx.beginPath();
     mctx.arc(elevatorPos.x * cpx + cpx/2, elevatorPos.y * cpy + cpy/2,
              Math.max(2, cpx * 0.55), 0, Math.PI * 2);
@@ -510,9 +510,9 @@ function drawMinimaps() {
       mctx.fill();
     }
 
-    // Player dot (pink, current floor only)
+    // Player dot (light grey, current floor only)
     if (f === currentFloor) {
-      mctx.fillStyle = '#ff4d9d';
+      mctx.fillStyle = '#cccccc';
       mctx.beginPath();
       mctx.arc(player.x * cpx + cpx/2, player.y * cpy + cpy/2,
                Math.max(2, cpx * 0.65), 0, Math.PI * 2);
