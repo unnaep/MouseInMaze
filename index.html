@@ -563,15 +563,16 @@ function draw() {
     ctx.fillText(e, x * cs + cs / 2, y * cs + cs / 2);
   }
 
-  // Helper: white cell + emoji, with all canvas state reset to avoid bleed
-  function emojiCell(e, x, y) {
+  // Helper: coloured cell + emoji, with all canvas state reset to avoid bleed
+  function emojiCell(e, x, y, bg) {
     ctx.save();
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
     ctx.shadowBlur = 0;
     ctx.shadowColor = 'transparent';
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = bg;
     ctx.fillRect(x * cs, y * cs, cs, cs);
+    ctx.fillStyle = '#000000';
     ctx.font = `${Math.floor(cs * 0.78)}px serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -581,14 +582,15 @@ function draw() {
 
   // Cheese (only on cheese floor)
   if (currentFloor === cheeseFloor)
-    emojiCell('🧀', cheesePos[0], cheesePos[1]);
+    emojiCell('🧀', cheesePos[0], cheesePos[1], '#e8e8f0');
 
   // Elevator (every floor)
-  emojiCell('🛗', elevatorPos.x, elevatorPos.y);
+  emojiCell('🛗', elevatorPos.x, elevatorPos.y, '#0a0a1e');
 
   // Player – save/restore so no prior fillStyle or shadow bleeds in
   ctx.save();
   ctx.shadowBlur = 0; ctx.shadowColor = 'transparent'; ctx.globalAlpha = 1;
+  ctx.fillStyle = '#000000';
   ctx.font = `${Math.floor(cs * 0.78)}px serif`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText('🐭', player.x * cs + cs / 2, player.y * cs + cs / 2);
